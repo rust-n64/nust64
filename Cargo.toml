@@ -1,0 +1,20 @@
+[package]
+name = "nust64"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cargo_metadata = "0.14"
+object = "0.28"
+bytes = "1.1"
+crc = "2.1"
+
+clap = { version = "3.1", features = ["cargo"], optional = true }
+
+
+[features]
+build-binary = ["clap"]
+
+[[bin]]
+name = "nust64"
+required-features = ["build-binary"]

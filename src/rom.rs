@@ -1,8 +1,7 @@
 use std::num::Wrapping;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use crc::{Crc, CRC_32_ISO_HDLC};
-use object::{Object, ObjectSection, SectionFlags};
-use object::elf::SHF_EXECINSTR;
+use crate::elf::Elf;
 
 pub const CRC: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 
@@ -162,37 +161,26 @@ pub struct Rom {
     pub binary: Vec<u8>,
 }
 impl Rom {
-    pub fn new(elf_data: &[u8], ipl3: [u8; 0x1000 - 0x40], name: &str) -> Self {
-        let elf = object::File::parse(elf_data).unwrap();
-        let boot = elf.section_by_name(".boot").unwrap();
-        let flags = match boot.flags() {
-            SectionFlags::Elf { sh_flags } => sh_flags,
-            _ => 0
-        };
-        
-        if (flags & (SHF_EXECINSTR as u64)) == 0 {
-            panic!("ELF .boot section isn't executable");
-        }
-        
+    pub fn new(elf: &Elf, ipl3: [u8; 0x1000 - 0x40], name: Option<&str>) -> Self {
         let mut binary = BytesMut::new();
-        binary.put_slice(boot.data().expect(".boot section has no data?"));
+        let boot = elf.sections.get(".boot").expect(".boot section missing");
+        binary.put_slice(&boot.data);
         
-        let mut offset = boot.address() + boot.size();
+        let mut offset = boot.addr + boot.data.len() as u64;
         
         for name in [".text", ".rodata", ".data", ".got"] {
-            if let Some(section) = elf.section_by_name(name) {
-                if section.size() == 0 { continue; }
+            if let Some(section) = elf.sections.get(name) {
+                if section.data.len() == 0 { continue; }
                 
-                let section_addr = section.address();
+                let section_addr = section.addr;
                 if offset < section_addr { // if needed, pad binary until the next section starts
                     binary.resize(binary.len() + (section_addr - offset) as usize, 0x00);
                     offset = section_addr;
                 }
                 
-                println!("at offset {:#010X}: appended {:#010X} to binary", offset, section.size());
-                binary.extend_from_slice(section.data().expect(&format!("{} section has no data?", name)));
+                binary.extend_from_slice(&section.data);
                 
-                offset += section.size();
+                offset += section.data.len() as u64;
             }
         }
         
@@ -202,7 +190,7 @@ impl Rom {
         }
         
         Self {
-            header: Header::generate(&binary, ipl3, name, elf.entry() as u32),
+            header: Header::generate(&binary, ipl3, name.unwrap_or(&elf.path.file_name().unwrap().to_string_lossy()), elf.entry),
             ipl3,
             binary: binary.to_vec(),
         }

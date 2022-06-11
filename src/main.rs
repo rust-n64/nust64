@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use clap::{AppSettings, Arg, Command};
+use nust64::elf::Elf;
 use nust64::rom::Rom;
 
 fn main() {
@@ -12,6 +13,9 @@ fn main() {
             .required(true)
             .long("ipl3")
             .help("Path to IPL3 binary file."))
+        .arg(Arg::new("additional-args")
+            .takes_value(true)
+            .multiple_values(true))
         .global_setting(AppSettings::DeriveDisplayOrder)
         .next_line_help(true)
         .get_matches();
@@ -38,13 +42,12 @@ fn main() {
         ipl3.resize(4032, 0x00);
     }
     
-    let (elf_data, artifact) = match nust64::build_elf(&project_path, Some(&["--features", "default_tests"])) {
+    let elf = match Elf::build(&project_path, Some(&matches.values_of_lossy("additional-args").unwrap_or_default())) {
         Ok(data) => data,
         Err(err) => panic!("Error encountered during build: {:?}", err)
     };
     
-    let rom = Rom::new(&elf_data, ipl3.try_into().unwrap(), &artifact.file_stem().unwrap_or_default().to_string_lossy());
+    let rom = Rom::new(&elf, ipl3.try_into().unwrap(), None);
     
-    let output = artifact.with_extension("n64");
-    std::fs::write(output, rom.to_vec()).unwrap();
+    std::fs::write(elf.path.with_extension("n64"), rom.to_vec()).unwrap();
 }

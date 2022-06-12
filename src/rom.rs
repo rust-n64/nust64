@@ -3,12 +3,19 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use crc::{Crc, CRC_32_ISO_HDLC};
 use crate::elf::Elf;
 
+/// Used to determine IPL3 variant
 pub const CRC: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 
+/// Represents an N64 ROM header with all known header fields.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Header {
+    /// The first 4 bytes of the header are used by IPL2 to initialize the PI DOM1_xxx registers.
+    /// Emulators often use them to determine the endianness of the ROM, but they can be different
+    /// values than the standard found in all official game releases.
     pub pi_regs: u32,
     pub clockrate: u32,
+    /// Also known as the entrypoint, however different IPL3 variants treat this value differently
+    /// (e.g. some will offset it by some amount first.)
     pub pc: u32,
     pub unknown0: u16,
     pub release: u16,
@@ -22,6 +29,7 @@ pub struct Header {
     pub revision: u8,
 }
 impl Header {
+    /// Parses binary header data into a [`Header`]. 
     pub fn new(data: [u8; 0x40]) -> Self {
         let mut data = Bytes::from(data.to_vec());
         
@@ -42,6 +50,9 @@ impl Header {
         }
     }
     
+    /// Generates a new [`Header`] using the binary part of a rom, an IPL3, name, and entrypoint.
+    /// 
+    /// Use [`Self::new()`] to parse existing header data.
     pub fn generate(binary: &[u8], ipl3: [u8; 0x1000 - 0x40], name: &str, entry: u32) -> Self {
         let mut combined = BytesMut::with_capacity(binary.len() + ipl3.len());
         combined.extend_from_slice(binary);
@@ -68,6 +79,7 @@ impl Header {
         }
     }
     
+    /// Encodes the header data into a `Vec`.
     pub fn to_vec(&self) -> Vec<u8> {
         let mut data = BytesMut::with_capacity(0x40);
         
@@ -88,6 +100,15 @@ impl Header {
         data.to_vec()
     }
     
+    /// Computes the 64-bit checksum found in N64 ROM headers.
+    /// 
+    /// This algorithm is practically nonsense and was likely designed for "security through
+    /// obscurity", like many checksum algorithms developed by Nintendo at the time.
+    /// 
+    /// The checksum depends on the IPL3 being used. Custom IPL3s will cause this function
+    /// to return a checksum of `0u64`. This may be changed in future versions.
+    /// 
+    /// Original source: http://n64dev.org/n64crc.html
     pub fn calculate_checksum(binary: &[u8], ipl3: [u8; 0x1000 - 0x40]) -> u64 {
         #[derive(PartialEq)]
         enum Variant {
@@ -98,6 +119,12 @@ impl Header {
         }
         use Variant::*;
         
+        // The initial value is decided based on which IPL3 variant is used
+        // initial = (seed * magic_number) + 1
+        //
+        // The seed is hardcoded into each CIC variant, and the magic number is hardcoded into the
+        // matching IPL3 variant. However, even though 6101, 6102/7101, and 7102 are three different
+        // variants, they use the same seed and magic number.
         let (initial, variant) = match CRC.checksum(&ipl3) {
             0x6170A4A1 | 0x90BB6CB5 | 0x009E9EA3 => (((0x3Fu64 * 0x5D588B65u64) + 1) as u32, Others), // 6101, 6102/7101, 7102
             0x0B050EE0 => (((0x78u64 * 0x6C078965u64) + 1) as u32, X103), // 6103/7103
@@ -154,13 +181,22 @@ impl Header {
     }
 }
 
+/// Represents an N64 ROM binary split into the parts: the header, IPL3, and remaining binary.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rom {
     pub header: Header,
+    /// Initial Program Load Stage 3, run during the boot process of the console.
     pub ipl3: [u8; 0x1000 - 0x40],
+    /// The remaining binary code found after the IPL3 section.
     pub binary: Vec<u8>,
 }
 impl Rom {
+    /// Extracts necessary data from an [`Elf`] to generate an N64-compatible ROM.
+    /// 
+    /// The ROM header will be auto-generated based on the Elf. If `name` is Some, it will be used
+    /// in the ROM's header. Otherwise the name of the Elf artifact will be used.
+    /// 
+    /// In either case, the name will be trimmed or padded with ASCII spaces to exactly 20 bytes. 
     pub fn new(elf: &Elf, ipl3: [u8; 0x1000 - 0x40], name: Option<&str>) -> Self {
         let mut binary = BytesMut::new();
         let boot = elf.sections.get(".boot").expect(".boot section missing");
@@ -196,7 +232,9 @@ impl Rom {
         }
     }
     
-    
+    /// Copies ROM components into a Vec.
+    /// 
+    /// Use this to combine `self`'s header, IPL3, and remaining code/assets into a usable N64 ROM.
     pub fn to_vec(&self) -> Vec<u8> {
         let mut data = BytesMut::with_capacity(0x40 + self.ipl3.len() + self.binary.len());
         

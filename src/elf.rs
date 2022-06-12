@@ -6,12 +6,15 @@ use object::{File, Object, ObjectSection, SectionFlags};
 use object::elf::SHF_EXECINSTR;
 use crate::{Error::*, Result};
 
+/// Simplified version of an ELF object section.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct ElfSection {
     pub addr: u64,
     pub data: Vec<u8>,
 }
 
+/// Result of parsing an ELF object file, this stores the important components for generating 
+/// a [Rom](crate::rom::Rom).
 #[derive(Clone, PartialEq, Debug)]
 pub struct Elf {
     pub path: PathBuf,
@@ -21,6 +24,50 @@ pub struct Elf {
     pub is_boot_executable: bool,
 }
 impl Elf {
+    /// Loads an ELF object file, and parses the most critical information from it for use with
+    /// this crate. To retrieve additional data, use [`object::File::parse()`].
+    pub fn with_file(elf_path: &PathBuf) -> Result<Self> {
+        match std::fs::read(elf_path) {
+            Ok(raw) => {
+                let obj = File::parse(raw.as_slice()).expect(&format!("Failed to parse artifact as ELF: {}", elf_path.to_string_lossy()));
+                let entry = obj.entry() as u32;
+                let boot = obj.section_by_name(".boot").expect(".boot section not found!");
+                let flags = match boot.flags() {
+                    SectionFlags::Elf { sh_flags } => sh_flags,
+                    _ => 0
+                };
+                
+                let mut sections = HashMap::new();
+                for section in obj.sections() {
+                    sections.insert(section.name().unwrap_or(&format!("{:#0X}", section.address())).to_owned(), ElfSection {
+                        addr: section.address(),
+                        data: section.data().unwrap_or_default().to_vec()
+                    });
+                }
+                
+                Ok(Self {
+                    path: elf_path.clone(),
+                    raw,
+                    entry,
+                    sections,
+                    is_boot_executable: (flags & (SHF_EXECINSTR as u64)) != 0
+                })
+            },
+            Err(err) => Err(IoError(err))
+        }
+    }
+    
+    /// Executes a cargo build command on the provided project, which should generate
+    /// a MIPS-III compatible ELF binary file.
+    /// 
+    /// Failed attempts to write the LLVM target or linker files necessary for compilation, will cause
+    /// a panic. Other errors be returned.
+    /// 
+    /// Manifest path can either be a path to the project's root directory, or to a project's
+    /// Cargo.toml file.
+    /// 
+    /// Additional arguments can also be provided which will be appended to the build command. Useful
+    /// for attaching feature flags or other compile-time arguments needed for the project.
     pub fn build(manifest_path: &PathBuf, additional_args: Option<&[impl AsRef<str>]>) -> Result<Self> {
         let manifest_path = manifest_path.canonicalize().unwrap();
         
@@ -72,34 +119,7 @@ impl Elf {
             
             // The ELF binary should be the last artifact in the list, if not the only one
             if let Some(artifact) = artifacts.last() {
-                return match std::fs::read(artifact) {
-                    Ok(raw) => {
-                        let obj = File::parse(raw.as_slice()).expect(&format!("Failed to parse artifact as ELF: {}", artifact));
-                        let entry = obj.entry() as u32;
-                        let boot = obj.section_by_name(".boot").expect(".boot section not found!");
-                        let flags = match boot.flags() {
-                            SectionFlags::Elf { sh_flags } => sh_flags,
-                            _ => 0
-                        };
-                        
-                        let mut sections = HashMap::new();
-                        for section in obj.sections() {
-                            sections.insert(section.name().unwrap_or(&format!("{:#0X}", section.address())).to_owned(), ElfSection {
-                                addr: section.address(),
-                                data: section.data().unwrap_or_default().to_vec()
-                            });
-                        }
-                        
-                        Ok(Self {
-                            path: artifact.clone().into_std_path_buf(),
-                            raw,
-                            entry,
-                            sections,
-                            is_boot_executable: (flags & (SHF_EXECINSTR as u64)) != 0
-                        })
-                    },
-                    Err(err) => Err(IoError(err))
-                }
+                return Self::with_file(&artifact.clone().into_std_path_buf());
             }
             
             Err(ArtifactNotFound)

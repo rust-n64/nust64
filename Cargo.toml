@@ -2,6 +2,13 @@
 name = "nust64"
 version = "0.1.0"
 edition = "2021"
+authors = ["Luke Stadem <bigbass1997.website@gmail.com>"]
+description = "Build tools for compiling a Rust project into an N64 ROM."
+license = "2-Clause BSD"
+license-file = "LICENSE"
+repository = "https://github.com/bigbass1997/nust64"
+keywords = ["n64", "mips", "mips3", "rom"]
+categories = ["command-line-utilities", "development-tools::build-utils", "hardware-support", "embedded"]
 
 [dependencies]
 cargo_metadata = "0.14"

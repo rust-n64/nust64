@@ -7,7 +7,7 @@ use crate::elf::Elf;
 pub const CRC: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 
 /// Represents an N64 ROM header with all known header fields.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Default)]
 pub struct Header {
     /// The first 4 bytes of the header are used by IPL2 to initialize the PI DOM1_xxx registers.
     /// Emulators often use them to determine the endianness of the ROM, but they can be different

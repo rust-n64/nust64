@@ -20,16 +20,7 @@ fn main() {
         .next_line_help(true)
         .get_matches();
     
-    let mut project_path = PathBuf::from(matches.value_of("project-path").unwrap_or("."));
-    if project_path.is_dir() {
-        project_path.push("Cargo.toml");
-        
-        if !project_path.is_file() {
-            panic!("Project's Cargo.toml file could not be found: {}", project_path.to_string_lossy());
-        }
-    } else if !project_path.is_file() || !project_path.file_name().unwrap_or_default().eq("Cargo.toml") {
-        panic!("Project's Cargo.toml file could not be found: {}", project_path.to_string_lossy());
-    }
+    let project_path = PathBuf::from(matches.value_of("project-path").unwrap_or("."));
     
     let mut ipl3 = std::fs::read(matches.value_of("ipl3").unwrap()).unwrap();
     if ipl3.len() < 4032 {

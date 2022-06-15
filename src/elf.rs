@@ -69,7 +69,16 @@ impl Elf {
     /// Additional arguments can also be provided which will be appended to the build command. Useful
     /// for attaching feature flags or other compile-time arguments needed for the project.
     pub fn build(manifest_path: &PathBuf, additional_args: Option<&[impl AsRef<str>]>) -> Result<Self> {
-        let manifest_path = manifest_path.canonicalize().unwrap();
+        let mut manifest_path = manifest_path.canonicalize().unwrap();
+        if manifest_path.is_dir() {
+            manifest_path.push("Cargo.toml");
+            
+            if !manifest_path.is_file() {
+                panic!("Project's Cargo.toml file could not be found: {}", manifest_path.to_string_lossy());
+            }
+        } else if !manifest_path.is_file() || !manifest_path.file_name().unwrap_or_default().eq("Cargo.toml") {
+            panic!("Project's Cargo.toml file could not be found: {}", manifest_path.to_string_lossy());
+        }
         
         let mut target_path = manifest_path.parent().unwrap().to_path_buf();
         target_path.push("target/");
@@ -88,7 +97,7 @@ impl Elf {
         
         let output = Command::new("cargo")
             .args([
-                "+nightly-2022-03-27", //TODO pull this dynamically from manifest's directory
+                &format!("+{}", Self::find_toolchain(&manifest_path).unwrap_or_default()),
                 "build",
                 "--release",
                 "--manifest-path",
@@ -126,5 +135,40 @@ impl Elf {
         } else {
             Err(BuildFailed(format!("cargo build failed: {}", output.status)))
         }
+    }
+    
+    fn find_toolchain(manifest_path: &PathBuf) -> Option<String> {
+        let parent_path = match manifest_path.parent() {
+            Some(path) => path.to_path_buf(),
+            None => return None
+        };
+        
+        let mut legacy_path = parent_path.clone();
+        legacy_path.push("rust-toolchain");
+        if legacy_path.is_file() {
+            return Some(std::fs::read_to_string(legacy_path).unwrap_or_default().trim().to_owned());
+        }
+        
+        let mut toml_path = parent_path.clone();
+        toml_path.push("rust-toolchain.toml");
+        if toml_path.is_file() {
+            let contents = std::fs::read_to_string(&toml_path).unwrap_or_default();
+            
+            if contents.contains("channel =") {
+                #[derive(serde::Deserialize, Debug)]
+                struct ToolchainToml {
+                    toolchain: ToolchainTable,
+                }
+                #[derive(serde::Deserialize, Debug)]
+                struct ToolchainTable {
+                    channel: String,
+                }
+                
+                let toml: ToolchainToml = toml::from_str(&contents).expect(&format!("Failed to parse as TOML: {}", toml_path.to_string_lossy()));
+                return Some(toml.toolchain.channel)
+            }
+        }
+        
+        None
     }
 }

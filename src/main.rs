@@ -37,7 +37,7 @@ fn main() {
         ipl3.resize(4032, 0x00);
     }
     
-    let elf = match Elf::build(&project_path, Some(&matches.values_of_lossy("additional-args").unwrap_or_default())) {
+    let elf = match Elf::build(&project_path, Some(&matches.values_of_lossy("additional-args").unwrap_or_default().iter().map(|s| s.as_str()).collect::<Vec<&str>>())) {
         Ok(data) => data,
         Err(err) => panic!("Error encountered during build: {:?}", err)
     };

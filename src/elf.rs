@@ -68,7 +68,7 @@ impl Elf {
     /// 
     /// Additional arguments can also be provided which will be appended to the build command. Useful
     /// for attaching feature flags or other compile-time arguments needed for the project.
-    pub fn build(manifest_path: &PathBuf, additional_args: Option<&[impl AsRef<str>]>) -> Result<Self> {
+    pub fn build(manifest_path: &PathBuf, additional_args: Option<&[&str]>) -> Result<Self> {
         let mut manifest_path = manifest_path.canonicalize().unwrap();
         if manifest_path.is_dir() {
             manifest_path.push("Cargo.toml");
@@ -95,9 +95,13 @@ impl Elf {
         
         std::env::set_var("RUSTFLAGS", format!("{} -Clinker-plugin-lto", std::env::var("RUSTFLAGS").unwrap_or_default()).trim());
         
+        let toolchain = find_toolchain(&manifest_path).unwrap_or_default();
+        if !toolchain.is_empty() && !install_toolchain(&toolchain) {
+            println!("Warning: Failed to install rust-src component; build may not succeed.")
+        }
         let output = Command::new("cargo")
             .args([
-                &format!("+{}", Self::find_toolchain(&manifest_path).unwrap_or_default()),
+                &format!("+{}", toolchain),
                 "build",
                 "--release",
                 "--manifest-path",
@@ -136,39 +140,69 @@ impl Elf {
             Err(BuildFailed(format!("cargo build failed: {}", output.status)))
         }
     }
+}
+
+fn find_toolchain(manifest_path: &PathBuf) -> Option<String> {
+    let parent_path = match manifest_path.parent() {
+        Some(path) => path.to_path_buf(),
+        None => return None
+    };
     
-    fn find_toolchain(manifest_path: &PathBuf) -> Option<String> {
-        let parent_path = match manifest_path.parent() {
-            Some(path) => path.to_path_buf(),
-            None => return None
-        };
-        
-        let mut legacy_path = parent_path.clone();
-        legacy_path.push("rust-toolchain");
-        if legacy_path.is_file() {
-            return Some(std::fs::read_to_string(legacy_path).unwrap_or_default().trim().to_owned());
-        }
-        
-        let mut toml_path = parent_path.clone();
-        toml_path.push("rust-toolchain.toml");
-        if toml_path.is_file() {
-            let contents = std::fs::read_to_string(&toml_path).unwrap_or_default();
-            
-            if contents.contains("channel =") {
-                #[derive(serde::Deserialize, Debug)]
-                struct ToolchainToml {
-                    toolchain: ToolchainTable,
-                }
-                #[derive(serde::Deserialize, Debug)]
-                struct ToolchainTable {
-                    channel: String,
-                }
-                
-                let toml: ToolchainToml = toml::from_str(&contents).expect(&format!("Failed to parse as TOML: {}", toml_path.to_string_lossy()));
-                return Some(toml.toolchain.channel)
-            }
-        }
-        
-        None
+    let mut legacy_path = parent_path.clone();
+    legacy_path.push("rust-toolchain");
+    if legacy_path.is_file() {
+        return Some(std::fs::read_to_string(legacy_path).unwrap_or_default().trim().to_owned());
     }
+    
+    let mut toml_path = parent_path.clone();
+    toml_path.push("rust-toolchain.toml");
+    if toml_path.is_file() {
+        let contents = std::fs::read_to_string(&toml_path).unwrap_or_default();
+        
+        if contents.contains("channel =") {
+            #[derive(serde::Deserialize, Debug)]
+            struct ToolchainToml {
+                toolchain: ToolchainTable,
+            }
+            #[derive(serde::Deserialize, Debug)]
+            struct ToolchainTable {
+                channel: String,
+            }
+            
+            let toml: ToolchainToml = toml::from_str(&contents).expect(&format!("Failed to parse as TOML: {}", toml_path.to_string_lossy()));
+            return Some(toml.toolchain.channel)
+        }
+    }
+    
+    None
+}
+
+fn install_toolchain(toolchain: &str) -> bool {
+    let output = Command::new("rustup")
+        .args([
+            "install",
+            toolchain,
+        ])
+        .stderr(Stdio::inherit())
+        .output()
+        .unwrap();
+    if !output.status.success() {
+        return false;
+    }
+    
+    let output = Command::new("rustup")
+        .args([
+            "run",
+            toolchain,
+            "--",
+            "rustup",
+            "component",
+            "add",
+            "rust-src",
+        ])
+        .stderr(Stdio::inherit())
+        .output()
+        .unwrap();
+    
+    output.status.success()
 }

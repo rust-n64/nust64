@@ -69,15 +69,15 @@ impl Elf {
     /// Additional arguments can also be provided which will be appended to the build command. Useful
     /// for attaching feature flags or other compile-time arguments needed for the project.
     pub fn build(manifest_path: &PathBuf, additional_args: Option<&[&str]>) -> Result<Self> {
-        let mut manifest_path = manifest_path.canonicalize().unwrap();
+        let mut manifest_path = dunce::canonicalize(manifest_path).unwrap(); // Probably unnecessary, but using it for safety
         if manifest_path.is_dir() {
             manifest_path.push("Cargo.toml");
             
             if !manifest_path.is_file() {
-                panic!("Project's Cargo.toml file could not be found: {}", manifest_path.to_string_lossy());
+                panic!("Project's Cargo.toml file could not be found: {}", manifest_path.display());
             }
         } else if !manifest_path.is_file() || !manifest_path.file_name().unwrap_or_default().eq("Cargo.toml") {
-            panic!("Project's Cargo.toml file could not be found: {}", manifest_path.to_string_lossy());
+            panic!("Project's Cargo.toml file could not be found: {}", manifest_path.display());
         }
         
         let mut target_path = manifest_path.parent().unwrap().to_path_buf();
@@ -89,7 +89,7 @@ impl Elf {
         let linker_path = target_path.with_file_name("linker.ld");
         std::fs::write(&linker_path, linker).unwrap();
         
-        let target = include_str!("target-template/mips-nintendo64-none.json").replace("LINKER_PATH", &linker_path.to_string_lossy());
+        let target = include_str!("target-template/mips-nintendo64-none.json").replace("LINKER_PATH", &linker_path.display().to_string().replace("\\", "\\\\"));
         std::fs::write(&target_path, target).unwrap();
         
         
@@ -105,10 +105,10 @@ impl Elf {
                 "build",
                 "--release",
                 "--manifest-path",
-                &manifest_path.to_string_lossy(),
+                &manifest_path.display().to_string(),
                 "-Z=build-std=core,alloc",
                 "--message-format=json-render-diagnostics",
-                &format!("--target={}", &target_path.to_string_lossy()),
+                &format!("--target={}", target_path.display()),
             ])
             .args(additional_args.unwrap_or_default().iter().map(|s| s.as_ref()).collect::<Vec<&str>>())
             .stderr(Stdio::inherit())

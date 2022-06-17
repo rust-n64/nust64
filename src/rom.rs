@@ -226,7 +226,7 @@ impl Rom {
         } else if binary.len() > 0x100000 {
             let total_len = binary.len() + 0x1000;
             let div = (total_len / 0x100000) + 1;
-            binary.resize(div * 0x100000, 0xFF);
+            binary.resize((div * 0x100000) - 0x1000, 0xFF);
         }
         
         Self {

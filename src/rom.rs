@@ -222,7 +222,11 @@ impl Rom {
         
         // if binary smaller than 1MB, pad to 1MB
         if binary.len() < 0x100000 {
-            binary.resize(0x100000, 0x00);
+            binary.resize(0x100000, 0xFF);
+        } else if binary.len() > 0x100000 {
+            let total_len = binary.len() + 0x1000;
+            let div = (total_len / 0x100000) + 1;
+            binary.resize(div * 0x100000, 0xFF);
         }
         
         Self {

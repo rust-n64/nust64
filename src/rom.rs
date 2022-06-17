@@ -150,7 +150,7 @@ impl Header {
             let word = Wrapping(word);
             
             if (t6 + word) < t6 {
-                t4 += 1;
+                t4 += Wrapping(1);
             }
             
             t6 += word;

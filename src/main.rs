@@ -27,7 +27,7 @@ fn main() {
     let project_path = PathBuf::from(matches.value_of("project-path").unwrap_or("."));
     
     let mut ipl3 = std::fs::read(matches.value_of("ipl3").unwrap()).unwrap();
-    if ipl3.len() < 4032 {
+    if ipl3.len() != 4032 {
         if ipl3.len() > 4032 {
             println!("Warning! Provided IPL3 is larger than expected 4032 bytes ({}). IPL3 will be truncated.", ipl3.len())
         } else {

@@ -99,9 +99,11 @@ impl Elf {
         if !toolchain.is_empty() && !install_toolchain(&toolchain) {
             println!("Warning: Failed to install rust-src component; build may not succeed.")
         }
-        let output = Command::new("cargo")
+        let output = Command::new("rustup")
             .args([
-                &format!("+{}", toolchain),
+                "run",
+                &toolchain,
+                "cargo",
                 "build",
                 "--release",
                 "--manifest-path",

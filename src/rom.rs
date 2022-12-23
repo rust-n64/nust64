@@ -58,7 +58,10 @@ impl Header {
         combined.extend_from_slice(binary);
         combined.extend_from_slice(&ipl3);
         
-        let name: [u8; 20] = format!("{:20}", name).as_bytes().try_into().unwrap();
+        let mut name = name.as_bytes().to_vec();
+        name.resize(20, ' ' as u8);
+        
+        let name: [u8; 20] = name.try_into().unwrap();
         
         let checksum = Self::calculate_checksum(binary, ipl3);
         

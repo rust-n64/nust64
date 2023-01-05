@@ -1,23 +1,20 @@
 [package]
 name = "nust64"
-version = "0.1.7"
+version = "0.2.0"
 edition = "2021"
 authors = ["Luke Stadem <bigbass1997.website@gmail.com>"]
 description = "Build tools for compiling a Rust project into an N64 ROM."
 license = "MIT"
-repository = "https://github.com/bigbass1997/nust64"
+repository = "https://github.com/rust-n64/nust64"
 keywords = ["n64", "mips", "mips3", "rom"]
 categories = ["command-line-utilities", "development-tools::build-utils", "hardware-support", "embedded"]
 
 [dependencies]
-cargo_metadata = "0.14"
 object = "0.28"
 bytes = "1.1"
 crc = "2.1"
-serde = "1.0"
-toml = "0.5"
-clap = { version = "3.1", features = ["cargo"] }
-dunce = "1.0"
+bpaf = { version = "0.7", features = ["derive"] }
+shlex = "1.1"
 
 [[bin]]
 name = "nust64"

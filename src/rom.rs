@@ -53,12 +53,12 @@ impl Header {
     /// Generates a new [`Header`] using the binary part of a rom, an IPL3, name, and entrypoint.
     /// 
     /// Use [`Self::new()`] to parse existing header data.
-    pub fn generate(binary: &[u8], ipl3: [u8; 0x1000 - 0x40], name: &str, entry: u32) -> Self {
+    pub fn generate<S: AsRef<str>>(binary: &[u8], ipl3: [u8; 0x1000 - 0x40], name: S, entry: u32) -> Self {
         let mut combined = BytesMut::with_capacity(binary.len() + ipl3.len());
         combined.extend_from_slice(binary);
         combined.extend_from_slice(&ipl3);
         
-        let mut name = name.as_bytes().to_vec();
+        let mut name = name.as_ref().as_bytes().to_vec();
         name.resize(20, ' ' as u8);
         
         let name: [u8; 20] = name.try_into().unwrap();
@@ -197,30 +197,53 @@ impl Rom {
     /// Extracts necessary data from an [`Elf`] to generate an N64-compatible ROM.
     /// 
     /// The ROM header will be auto-generated based on the Elf. If `name` is Some, it will be used
-    /// in the ROM's header. Otherwise the name of the Elf artifact will be used.
+    /// in the ROM's header. Otherwise the name of the Elf artifact will be used. In either case,
+    /// the name will be trimmed or padded with ASCII spaces to exactly 20 bytes. 
     /// 
-    /// In either case, the name will be trimmed or padded with ASCII spaces to exactly 20 bytes. 
-    pub fn new(elf: &Elf, ipl3: [u8; 0x1000 - 0x40], name: Option<&str>) -> Self {
-        let mut binary = BytesMut::new();
-        let boot = elf.sections.get(".boot").expect(".boot section missing");
-        binary.put_slice(&boot.data);
+    /// By default, only the ELF sections .boot, .text, .rodata, .data, .assets, and .bss are
+    /// included in the ROM. If `section_overrides` is not empty, the sections from the argument
+    /// will be used _instead of_ the default set.
+    /// 
+    /// # Panics
+    /// The ELF _must_ contain an executable .boot section. If using `section_overrides`, be sure to
+    /// include a `.boot` element.
+    pub fn new(elf: &Elf, ipl3: [u8; 0x1000 - 0x40], name: Option<String>, section_overrides: Vec<String>) -> Self {
+        let mut binary = vec![];
+        let included_sections = if !section_overrides.is_empty() {
+            section_overrides
+        } else {
+            vec![".boot", ".text", ".rodata", ".data", ".assets", ".bss"]
+                .into_iter()
+                .map(|n| n.to_string())
+                .collect()
+        };
         
-        let mut offset = boot.addr + boot.data.len() as u64;
+        if !elf.is_executable() {
+            panic!("ELF is does not contain .boot or is otherwise not executable");
+        }
         
-        for name in [".text", ".rodata", ".data", ".got"] {
-            if let Some(section) = elf.sections.get(name) {
-                if section.data.len() == 0 { continue; }
-                
-                let section_addr = section.addr;
-                if offset < section_addr { // if needed, pad binary until the next section starts
-                    binary.resize(binary.len() + (section_addr - offset) as usize, 0x00);
-                    offset = section_addr;
-                }
-                
-                binary.extend_from_slice(&section.data);
-                
-                offset += section.data.len() as u64;
+        let mut ptr = elf.sections
+            .iter()
+            .find(|section| section.name == Some(".boot".to_string()))
+            .map(|section| section.addr)
+            .unwrap_or(0);
+        for section in &elf.sections {
+            if section.data.len() == 0 { continue; }
+            
+            let section_name = section.name.as_ref().map(|n| n.as_str()).unwrap_or_default();
+            if !included_sections.contains(&section_name.to_string()) {
+                continue;
             }
+            
+            let section_addr = section.addr;
+            if ptr < section_addr { // if needed, pad binary until the next section starts
+                binary.resize(binary.len() + (section_addr - ptr) as usize, 0x00);
+                ptr = section_addr;
+            }
+            
+            binary.extend_from_slice(&section.data);
+            
+            ptr += section.data.len() as u64;
         }
         
         // if binary smaller than 1MB, pad to 1MB
@@ -233,10 +256,18 @@ impl Rom {
         }
         
         Self {
-            header: Header::generate(&binary, ipl3, name.unwrap_or(&elf.path.file_name().unwrap().to_string_lossy()), elf.entry),
+            header: Header::generate(&binary, ipl3, name.unwrap_or_else(|| elf.path.file_name().unwrap().to_string_lossy().to_string()), elf.entry),
             ipl3,
-            binary: binary.to_vec(),
+            binary,
         }
+    }
+    
+    /// Updates the checksum bytes in the ROM's header.
+    /// 
+    /// If the ROM's binary is ever modified, this function should be called or else the header will
+    /// likely contain an invalid checksum.
+    pub fn update_checksum(&mut self) {
+        self.header.checksum = Header::calculate_checksum(&self.binary, self.ipl3);
     }
     
     /// Copies ROM components into a Vec.

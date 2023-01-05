@@ -1,4 +1,4 @@
-[![License: BSD 2-Clause](https://img.shields.io/badge/License-BSD%202--Clause-blue?style=flat-square)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 [![Crates.io](https://img.shields.io/crates/v/nust64?style=flat-square)](https://crates.io/crates/nust64)
 [![Documentation](https://img.shields.io/docsrs/nust64?style=flat-square)](https://docs.rs/nust64)
 

@@ -1,6 +1,6 @@
 [package]
 name = "nust64"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Luke Stadem <bigbass1997.website@gmail.com>"]
 description = "Build tools for compiling a Rust project into an N64 ROM."
@@ -15,6 +15,7 @@ bytes = "1.1"
 crc = "2.1"
 bpaf = { version = "0.7", features = ["derive"] }
 shlex = "1.1"
+camino = "1.1"
 
 [[bin]]
 name = "nust64"

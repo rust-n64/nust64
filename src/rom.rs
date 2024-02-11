@@ -41,8 +41,18 @@ impl Header {
             release: data.get_u16(),
             checksum: data.get_u64(),
             unknown1: data.get_u64(),
-            image_name: data.slice(0..20)[..].try_into().unwrap(),
-            unknown2: data.slice(0..7)[..].try_into().unwrap(),
+            image_name: {
+                let d = data.slice(0..20)[..].try_into().unwrap(); // what a dumb API that this doesn't advance the buffer
+                data.advance(20);
+                
+                d
+            },
+            unknown2: {
+                let d = data.slice(0..7)[..].try_into().unwrap();
+                data.advance(7);
+                
+                d
+            },
             media_format: data.get_u8(),
             cart_id: data.get_u16(),
             country: data.get_u8(),
@@ -53,7 +63,7 @@ impl Header {
     /// Generates a new [`Header`] using the binary part of a rom, an IPL3, name, and entrypoint.
     /// 
     /// Use [`Self::new()`] to parse existing header data.
-    pub fn generate<S: AsRef<str>>(binary: &[u8], ipl3: [u8; 0x1000 - 0x40], name: S, entry: u32) -> Self {
+    pub fn generate<S: AsRef<str>>(binary: &[u8], ipl3: &[u8], name: S, entry: u32) -> Self {
         let mut combined = BytesMut::with_capacity(binary.len() + ipl3.len());
         combined.extend_from_slice(binary);
         combined.extend_from_slice(&ipl3);
@@ -63,7 +73,9 @@ impl Header {
         
         let name: [u8; 20] = name.try_into().unwrap();
         
-        let checksum = Self::calculate_checksum(binary, ipl3);
+        let mut check_ipl3 = ipl3.to_vec();
+        check_ipl3.resize(4032, 0x00);
+        let checksum = Self::calculate_checksum(binary, check_ipl3.try_into().unwrap());
         
         Self {
             pi_regs: 0x80371240,
@@ -189,7 +201,7 @@ impl Header {
 pub struct Rom {
     pub header: Header,
     /// Initial Program Load Stage 3, run during the boot process of the console.
-    pub ipl3: [u8; 0x1000 - 0x40],
+    pub ipl3: Vec<u8>,
     /// The remaining binary code found after the IPL3 section.
     pub binary: Vec<u8>,
 }
@@ -207,7 +219,7 @@ impl Rom {
     /// # Panics
     /// The ELF _must_ contain an executable .boot section. If using `section_overrides`, be sure to
     /// include a `.boot` element.
-    pub fn new(elf: &Elf, ipl3: [u8; 0x1000 - 0x40], name: Option<String>, section_overrides: Vec<String>) -> Self {
+    pub fn new(elf: &Elf, ipl3: &[u8], name: Option<String>, section_overrides: Vec<String>) -> Self {
         let mut binary = vec![];
         let included_sections = if !section_overrides.is_empty() {
             section_overrides
@@ -256,8 +268,8 @@ impl Rom {
         }
         
         Self {
-            header: Header::generate(&binary, ipl3, name.unwrap_or_else(|| elf.path.file_name().unwrap().to_string_lossy().to_string()), elf.entry),
-            ipl3,
+            header: Header::generate(&binary, ipl3, name.unwrap_or_else(|| elf.path.file_name().unwrap().to_string()), elf.entry),
+            ipl3: ipl3.to_vec(),
             binary,
         }
     }
@@ -267,7 +279,9 @@ impl Rom {
     /// If the ROM's binary is ever modified, this function should be called or else the header will
     /// likely contain an invalid checksum.
     pub fn update_checksum(&mut self) {
-        self.header.checksum = Header::calculate_checksum(&self.binary, self.ipl3);
+        let mut check_ipl3 = self.ipl3.clone();
+        check_ipl3.resize(4032, 0x00);
+        self.header.checksum = Header::calculate_checksum(&self.binary, check_ipl3.try_into().unwrap());
     }
     
     /// Copies ROM components into a Vec.

@@ -17,7 +17,6 @@ create the file `.cargo/config.toml`, and include this section:
 [target.mips-nintendo64-none]
 runner = [
     "nust64",
-    "--ipl3", "path/to/ipl3.bin",
     "--elf"
 ]
 ```
@@ -31,7 +30,33 @@ If you want to use any arguments that have spaces in it, you must format it like
 runner = [
     "nust64",
     "--post-exec", "/path/to/ares >>ROM<<",
+    "--elf"
+]
+```
+
+#### IPL3 Selection
+The IPL3 is a small portion of code that the N64 executes automatically during the boot process. Every ROM must contain a valid IPL3.
+
+**To provide your own IPL3,** use the `--ipl3` argument like so:
+```Toml
+[target.mips-nintendo64-none]
+runner = [
+    "nust64",
     "--ipl3", "path/to/ipl3.bin",
+    "--elf"
+]
+```
+
+**To use one of libdragon's open-source IPL3s,** you must omit `--ipl3` and optionally specify which IPL3 version to use with `--libdragon <option>`. Available options: `compat`, `debug`, or `release`.
+
+_If both `--ipl3` and `--libdragon` are omitted, `--libdragon release` will be used by default._
+
+Here's an example of using the debug (aka the "dev") version of libdragon's IPL3:
+```Toml
+[target.mips-nintendo64-none]
+runner = [
+    "nust64",
+    "--libdragon", "debug",
     "--elf"
 ]
 ```

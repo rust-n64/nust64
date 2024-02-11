@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use camino::{Utf8Path, Utf8PathBuf};
 use object::{File, Object, ObjectSection, SectionFlags, SectionKind};
 use object::elf::SHF_EXECINSTR;
 use crate::Result;
@@ -17,7 +17,7 @@ pub struct ElfSection {
 /// a [Rom](crate::rom::Rom).
 #[derive(Clone, PartialEq, Debug)]
 pub struct Elf {
-    pub path: PathBuf,
+    pub path: Utf8PathBuf,
     pub raw: Vec<u8>,
     pub entry: u32,
     pub sections: Vec<ElfSection>,
@@ -25,7 +25,7 @@ pub struct Elf {
 impl Elf {
     /// Loads an ELF object file, and parses the most critical information from it for use with
     /// this crate. Additional ELF data can be retrieved using [`Self::object()`].
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn new<P: AsRef<Utf8Path>>(path: P) -> Result<Self> {
         match std::fs::read(path.as_ref()) {
             Ok(raw) => {
                 let obj = File::parse(raw.as_slice())?;

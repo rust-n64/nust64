@@ -1,16 +1,40 @@
 use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
+use std::str::FromStr;
 use bpaf::Bpaf;
+use camino::{Utf8Path, Utf8PathBuf};
 use shlex::Shlex;
 use nust64::elf::Elf;
-use nust64::rom::Rom;
+use nust64::rom::{Header, Rom};
 
 //TODO:
 // - insert file at specific location (extending ROM if necessary)
 
+const LIBDRAGON_IPL3_PROD: &'static [u8] = include_bytes!("ipl3/ipl3_prod.z64");
+const LIBDRAGON_IPL3_DEV: &'static [u8] = include_bytes!("ipl3/ipl3_dev.z64");
+const LIBDRAGON_IPL3_COMPAT: &'static [u8] = include_bytes!("ipl3/ipl3_compat.z64");
+
+#[derive(Debug, Clone, PartialEq, Bpaf)]
+enum LibdragonIpl3Version {
+    Compat,
+    Debug,
+    Release,
+}
+impl FromStr for LibdragonIpl3Version {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().as_str() {
+            "compat" => Self::Compat,
+            "d" | "debug" | "dev" => Self::Debug,
+            "r" | "release" | "prod" => Self::Release,
+            _ => return Err("Unable to parse libdragon IPL3 version. Expected: compat, debug, or release".into()),
+        })
+    }
+}
+
 /// nust64 - ELF binary to N64 ROM converter
-#[derive(Debug, Bpaf)]
+#[derive(Debug, Clone, Bpaf)]
 #[bpaf(options, version, generate(args))]
 struct Args {
     /// command to execute before ROM generation
@@ -29,46 +53,59 @@ struct Args {
     
     /// append file to generated ROM
     #[bpaf(short, long("append"))]
-    appends: Vec<PathBuf>,
+    appends: Vec<Utf8PathBuf>,
     
     /// name to put in ROM header (max 20 bytes)
     #[bpaf(short, long)]
     name: Option<String>,
     
-    /// path to IPL3 binary (if none, IPL3 section will be filled with 0x00)
+    /// Path to IPL3 binary. If omitted, libdragon's open-source IPL3 is used instead (https://github.com/rasky/libdragon/blob/ipl3/boot/README.md)
     #[bpaf(long)]
-    ipl3: Option<PathBuf>,
+    ipl3: Option<Utf8PathBuf>,
+    
+    /// If '--ipl3' is not used, this determines which version of the libdragon open-source IPL3 is used. If omitted, the "prod" version is used by default.
+    #[bpaf(long)]
+    libdragon: Option<LibdragonIpl3Version>,
     
     /// path to ELF file
     #[bpaf(long)]
-    elf: PathBuf,
+    elf: Utf8PathBuf,
 }
 
 fn main() {
     let args = args().run();
     
-    for pre in args.pre_exec {
+    for pre in &args.pre_exec {
         exec(&pre);
     }
     
-    let mut ipl3 = match args.ipl3 {
-        Some(ref path) => fs::read(path).expect(&format!("IPL3 does not exist: {}", path.display())),
-        None => vec![0; 4032],
+    let rom_path = args.elf.with_extension("z64");
+    let rom = match args.ipl3.clone() {
+        Some(path) => from_custom_ipl3(path, args.clone()),
+        None => from_libdragon_ipl3(args.clone()),
     };
-    if ipl3.len() != 4032 {
-        if ipl3.len() > 4032 {
-            println!("Warning! Provided IPL3 is larger than expected 4032 bytes ({}). IPL3 will be truncated.", ipl3.len())
-        } else {
-            println!("Warning! Provided IPL3 is smaller than expected 4032 bytes ({}). IPL3 will be padded.", ipl3.len())
-        }
-        
-        ipl3.resize(4032, 0x00);
+    
+    fs::write(&rom_path, rom.to_vec()).unwrap();
+    let rom_path = rom_path.canonicalize_utf8().unwrap_or(rom_path);
+    println!("Generated ROM at: {rom_path}");
+    
+    for post in args.post_exec {
+        exec(&post.replace(">>ROM<<", rom_path.to_string().as_str()));
+    }
+}
+
+fn from_custom_ipl3<P: AsRef<Utf8Path>>(ipl3_path: P, args: Args) -> Rom {
+    let ipl3_path = ipl3_path.as_ref();
+    let elf_path = args.elf;
+    
+    let ipl3 = fs::read(ipl3_path).expect(&format!("IPL3 does not exist: {ipl3_path}"));
+    if ipl3.len() < 4032 {
+        println!("Warning! Provided IPL3 is smaller than 4032 bytes ({}). If this is unintentional, try padding the end of the file with zeros.", ipl3.len());
     }
     
-    let elf = Elf::new(&args.elf).expect("failed to parse ELF");
+    let elf = Elf::new(elf_path).expect("failed to parse ELF");
     
-    let mut rom = Rom::new(&elf, ipl3.try_into().unwrap(), args.name, args.sections);
-    let rom_path = elf.path.with_extension("z64");
+    let mut rom = Rom::new(&elf, &ipl3, args.name, args.sections);
     
     let data = &mut rom.binary;
     for append in args.appends {
@@ -77,12 +114,53 @@ fn main() {
         }
     }
     
-    fs::write(&rom_path, rom.to_vec()).unwrap();
-    let rom_path = rom_path.canonicalize().unwrap_or(rom_path);
-    println!("Generated ROM at: {}", rom_path.display());
+    rom
+}
+
+fn from_libdragon_ipl3(args: Args) -> Rom {
+    let elf = Elf::new(&args.elf).expect("failed to parse ELF");
     
-    for post in args.post_exec {
-        exec(&post.replace(">>ROM<<", rom_path.display().to_string().as_str()));
+    use LibdragonIpl3Version::*;
+    let build = args.libdragon.unwrap_or(Release);
+    if build == Compat {
+        let mut rom = Rom::new(&elf, &LIBDRAGON_IPL3_COMPAT[0x40..], args.name, args.sections);
+        
+        let data = &mut rom.binary;
+        for append in args.appends {
+            if append.is_file() {
+                data.extend_from_slice(&fs::read(append).unwrap());
+            }
+        }
+        
+        rom
+    } else {
+        let libdragon = if build == Debug {
+            LIBDRAGON_IPL3_DEV.to_vec()
+        } else {
+            LIBDRAGON_IPL3_PROD.to_vec()
+        };
+        
+        let mut binary = fs::read(&args.elf).unwrap();
+        let mut header = Header::new(libdragon[..0x40].try_into().unwrap());
+        header.pc = elf.entry;
+        
+        let mut name = args.name.unwrap_or_else(|| args.elf.file_name().unwrap().to_string()).as_bytes().to_vec();
+        name.resize(20, ' ' as u8);
+        header.image_name = name.try_into().unwrap();
+        
+        let misalignment = 256 - (libdragon.len() % 256);
+        if misalignment > 0 {
+            let mut aligned = vec![0x00; misalignment];
+            aligned.extend_from_slice(&binary);
+            
+            binary = aligned;
+        }
+        
+        Rom {
+            header,
+            ipl3: libdragon[0x40..].to_vec(),
+            binary,
+        }
     }
 }
 

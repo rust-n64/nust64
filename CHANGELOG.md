@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.3.1] - 2024-02-21
+- Added: Support for alternative libdragon-based IPL3's. Can now supply a filepath to the `--libdragon` argument.
+
 ## [0.3.0] - 2024-02-10
 - Added: Support for libdragon's new open-source IPL3 (compat, dev, and release builds)
 - Changed: All paths must now be UTF8.

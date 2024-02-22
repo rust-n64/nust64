@@ -19,6 +19,7 @@ enum LibdragonIpl3Version {
     Compat,
     Debug,
     Release,
+    Path(Utf8PathBuf),
 }
 impl FromStr for LibdragonIpl3Version {
     type Err = String;
@@ -28,6 +29,7 @@ impl FromStr for LibdragonIpl3Version {
             "compat" => Self::Compat,
             "d" | "debug" | "dev" => Self::Debug,
             "r" | "release" | "prod" => Self::Release,
+            s if Utf8PathBuf::from(s).is_file() => Self::Path(s.into()),
             _ => return Err("Unable to parse libdragon IPL3 version. Expected: compat, debug, or release".into()),
         })
     }
@@ -63,7 +65,9 @@ struct Args {
     #[bpaf(long)]
     ipl3: Option<Utf8PathBuf>,
     
-    /// If '--ipl3' is not used, this determines which version of the libdragon open-source IPL3 is used. If omitted, the "prod" version is used by default.
+    /// If '--ipl3' is not used, this determines which version of the libdragon open-source IPL3 is used. If omitted, the "prod" (release) version is used by default.
+    /// 
+    /// Valid options: compat, debug, release, or a filepath to a custom libdragon IPL3.
     #[bpaf(long)]
     libdragon: Option<LibdragonIpl3Version>,
     
@@ -134,10 +138,11 @@ fn from_libdragon_ipl3(args: Args) -> Rom {
         
         rom
     } else {
-        let libdragon = if build == Debug {
-            LIBDRAGON_IPL3_DEV.to_vec()
-        } else {
-            LIBDRAGON_IPL3_PROD.to_vec()
+        let libdragon = match build {
+            Debug => LIBDRAGON_IPL3_DEV.to_vec(),
+            Release => LIBDRAGON_IPL3_PROD.to_vec(),
+            Path(path) => std::fs::read(path).expect("failed to read libdragon IPL3 file"),
+            Compat => unreachable!(),
         };
         
         let mut binary = fs::read(&args.elf).unwrap();

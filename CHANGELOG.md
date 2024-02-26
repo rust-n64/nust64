@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.4.0] - 2024-02-25
+- Updated: libdragon IPL3's to `r5` (https://github.com/DragonMinded/libdragon/tree/unstable/boot#changelog) (possible breaking changes)
+
 ## [0.3.1] - 2024-02-21
 - Added: Support for alternative libdragon-based IPL3's. Can now supply a filepath to the `--libdragon` argument.
 

@@ -1,6 +1,6 @@
 [package]
 name = "nust64"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 authors = ["Luke Stadem <bigbass1997.website@gmail.com>"]
 description = "Build tools for compiling a Rust project into an N64 ROM."
